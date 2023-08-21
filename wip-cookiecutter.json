@@ -4,6 +4,6 @@
   "github_username": "etijskens",
   "project_name": "Dot",
   "package_name": "dot",
-  "project_short_description": "Getting started with `wip` - Dot product implementations",
+  "project_short_description": "dot product implementations",
   "minimal_python_version": "3.9"
 }

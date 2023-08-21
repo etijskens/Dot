@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "Dot"
 version = "0.0.0"
-description = "Getting started with `wip` - Dot product implementations"
+description = "dot product implementations"
 authors = ["Bert Tijskens <engelbert.tijskens@uantwerpen.be>"]
 license = "MIT"
 
