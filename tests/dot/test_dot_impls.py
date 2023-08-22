@@ -12,28 +12,38 @@ sys.path.insert(0,'.')
 
 from dot import *
 
-IMPLS = (
+IMPLEMENTATIONS = [
     dot     # the initial Python implementation
   , jit_dot # numba.jit(dot)
   , cpp_dot # the C++ implementation
   , f90_dot # the Modern Fortran implementation
   , np.dot  # the Numpy implementation
-)
-IMPL_NAMES = {
-    dot    : 'python dot version',
-    jit_dot: 'numba.jit()dot version',
-    cpp_dot: 'C++ dot version',
-    f90_dot: 'f90 dot version',
-    npy_dot: 'numpy.dot version',
-}
-# Print the names of the implementations for ease of reference.
-# In case of failure, the value of dot_impl will be reported, but, although unique,
-# it is not extremely informative.
-print("\nList of implementations types")
-for dot_impl, name in IMPL_NAMES.items():
-    print(f'{dot_impl=} = {name}')
-print()
+]
 
+IMPLEMENTATION_DESCRIPTIONS = {
+    dot    : 'python dot implementation',
+    jit_dot: 'numba.jit() dot implementation',
+    cpp_dot: 'C++ dot implementation',
+    f90_dot: 'f90 dot implementation',
+    npy_dot: 'numpy.dot implementation',
+}
+# Print the descriptions of the implementations for ease of reference.
+# In case of failure, the value of dot_impl will be reported, but, although unique,
+# it is not extremely informative (it is basically a function pointer).
+print("\nImplementation descriptions:")
+for dot_impl, desc in IMPLEMENTATION_DESCRIPTIONS.items():
+    print(f'{str(dot_impl) : <44} {desc:>30}')
+print()
+ARRAY_TYPES = (np.ndarray, list)
+IMPLEMENTATION_ARRAY_TYPES = {
+    dot     : ARRAY_TYPES
+  , jit_dot : ARRAY_TYPES
+  , cpp_dot : (np.ndarray,)
+  , f90_dot : ARRAY_TYPES
+  , np.dot  : ARRAY_TYPES
+}
+
+VERBOSE = True
 N_TEST_REPETITIONS = 1000
 N_TIME_REPETITIONS = 10
 
@@ -45,74 +55,76 @@ def test_dot_commutative():
         ba = dot_impl(b, a)
         assert ab == ba
 
-    _test(assert_dot_commutative, _array_pair_generator(2, extra_types=EXTRA_ARRAY_TYPES))
+    _test(assert_dot_commutative, IMPLEMENTATIONS, _random_array_pair_generator(n=2))
 
 def test_time_dot():
     """"""
-    _time(IMPLS, array_pair_generator=_time_array_pair_generator)
+
+    _time(IMPLEMENTATIONS, array_pair_generator=_time_array_pair_generator(10,40,2), n_iter=-400)
 
 ################################################################################
 # Helper functions
 ################################################################################
-def _time(impls, array_pair_generator, *array_pair_generator_args, **array_pair_generator_kwargs):
-    """Time the functions in `impls` for pairs of arrays provided by
-    `array_pair_generator(*array_pair_generator_args, **array_pair_generator_kwargs)`
+from time import perf_counter
+def _time(implementations: list, array_pair_generator, n_iter=10):
+    """Time the functions in list `implementations`.
 
     Args:
-        impls: sequence of implementations to time
-        array_pair_generator: a generator function that generates pairs of arrays serving as arguments to `impls`
-        *array_pair_generator_args: list of position arguments to `array_pair_generator`
-        **array_pair_generator_kwargs: list of keyword arguments to `array_pair_generator`
-
-    Because the `array_pair_generator` must be reused for every implementation in `impls`,
-    we must be able to restart it. Hence, we pass the method and its arguments separately.
+        implementations: list of dot product implementations
+        array_pair_generator: generates pairs of array for which the dot product will be computed
+        n_iter: if positive, the number the dot product is computed to provide a meaningful timing.
+            if negative, -n_iter is supposed a multiple of the maximum array length and  n x array size
+            is supposed to be constant.
     """
-    for impl in impls:
-        for a, b in array_pair_generator(*array_pair_generator_args, **array_pair_generator_kwargs):
-            print(f'{impl=}: ({IMPL_NAMES[impl]}) {type(a)=} {type(b)=} size={len(a):5g}: ', end='')
-            time_dot_impl = _time_fun(impl)
-            time_dot_impl(a, b)
-
-from time import perf_counter
-def _time_fun(dot_impl):
-    """A decorator that times the decorated function."""
-
-    def wrapper(a,b):
-        N = N_TIME_REPETITIONS
-        t0 = perf_counter()
-        for _ in range(N):
-            dot_impl(a,b)
-        t = (perf_counter() - t0) / N
-        print(f'{t:>10.3}s')
-
-    return wrapper
-
-def run_impls(test, a, b):
-    """Apply the test `test` to all dot implementations with argument arrays `a` and `b`."""
-    for dot_impl in IMPLS:
-        # cpp_dot cannot handle lists. If either array is a list we skip the test
-        if dot_impl is cpp_dot \
-        and (isinstance(a, list) or isinstance(b, list)):
-            continue
-        # An informative message to help during debugging
-        msg = f'{dot_impl=} (={IMPL_NAMES[dot_impl]}), {type(a)=}, {type(b)=}'
-        print(msg)
-        test(dot_impl, a, b)
-
-def _test(test, array_pair_generator):
-    """Apply the test `test` to all array pairs generated by the generator function
-    `array_pair_generator`."""
     for a, b in array_pair_generator:
-        run_impls(test, a, b)
+        for type_a, type_b in _array_pair_type_generator(ARRAY_TYPES):
+            for dot_impl in implementations:
+                array_types = IMPLEMENTATION_ARRAY_TYPES[dot_impl]
+                if  type_a in array_types \
+                and type_b in array_types:
+                    aa = a if type_a is np.ndarray else type_a(a)
+                    bb = b if type_b is np.ndarray else type_b(b)
+                    t0 = perf_counter()
+                    if n_iter >= 0:
+                        n = n_iter
+                    else:
+                        n = -n_iter // len(a)
+                        if n < 2:
+                            raise ValueError
+                    for _ in range(n):
+                        dot_impl(a,b)
+                    t = (perf_counter() - t0) / n
+                    print(f'{dot_impl=} ({IMPLEMENTATION_DESCRIPTIONS[dot_impl]})\n  ( a={type_a}\n  , b={type_b}\n  , size={len(a)}\n  , repeat={n}) took {t:>10.3}s')
 
-def _array_pair_generator(
+def _test(test_function, implementations, array_pair_generator):
+    if VERBOSE:
+        print(f'{test_function=}')
+    for a, b in array_pair_generator:
+        for type_a, type_b in _array_pair_type_generator(ARRAY_TYPES):
+            for dot_impl in IMPLEMENTATIONS:
+                array_types = IMPLEMENTATION_ARRAY_TYPES[dot_impl]
+                if  type_a in array_types \
+                and type_b in array_types:
+                    aa = a if type_a is np.ndarray else type_a(a)
+                    bb = b if type_b is np.ndarray else type_b(b)
+                    if VERBOSE:
+                        print(f'{dot_impl=} ({IMPLEMENTATION_DESCRIPTIONS[dot_impl]}) (a={type_a}, b={type_b}')
+                    dot_impl(aa, bb)
+
+def _array_pair_type_generator(array_types):
+    """generator function that yields every possible type pairs from a list of types `array_types`"""
+    for type_a in array_types:
+        for type_b in array_types:
+            yield (type_a, type_b)
+
+
+def _random_array_pair_generator(
       n: int = 1
     , same_length : bool = True
     , min_length : int = 1
     , max_length : int = 20
-    , extra_types: list = []
 ):
-    """Generator function for generating pairs of arrays with random values.
+    """Generator function for generating `n` pairs of arrays with random values, and random lengths
 
     Args:
         n: number of pairs to be generated
@@ -123,70 +135,41 @@ def _array_pair_generator(
     j = -1
     for i in range(n):
         # generate two random numpy arrays
-        m = random.randint(min_length, max_length)
-        a = np.random.random(m)
+        a_length = random.randint(min_length, max_length)
+        a = np.random.random(a_length)
         if same_length:
-            b = np.random.random(m)
+            b = np.random.random(a_length)
         else:
-            m2 = random.randint(min_length, max_length)
-            # if m2 happens to be equal to m generate new m2:
-            while m2 == m:
-                m2 = random.randint(min_length, max_length)
-            b = np.random.random(m2)
+            b_length = random.randint(min_length, max_length)
+            # if b_length happens to be equal to a_length generate new b_length:
+            while b_length == a_length:
+                b_length = random.randint(min_length, max_length)
+            b = np.random.random(b_length)
 
-        for at,bt in _array_pair_type_generator(a, b, extra_types=extra_types):
-            yield (at, bt)
+        yield (a, b)
 
 
 def _time_array_pair_generator(
       min_length : int = 100
-    , length_factor: int = 100
     , max_length : int = 1_000_000
-    , extra_types : list = []
+    , length_factor: int = 100
 ):
     """Generator function for generating pairs of arrays with random values for timings. Arrays will
     grow in length from `min_length` to `max_length` by a factor `length_factor`.
 
     Args:
-        only_numpy_arrays: if True, all arrays are Numpy arrays. Otherwise, Numpy arrays or Python lists.
         min_length: minimum length of the arrays
         length_factor: increase the array length by this factor each time
         max_length: maximum length of the arrays
     """
-    j = 0
     m = min_length
     while m <= max_length:
         a = np.random.random(m)
         b = np.random.random(m)
-
-        for at,bt in _array_pair_type_generator(a, b, extra_types=extra_types):
-            yield (at, bt)
+        yield (a, b)
 
         m *= length_factor
 
-def _array_pair_type_generator(a: np.ndarray, b: np.ndarray, types = (np.ndarray, list)):
-    """Generator function for generating all possible array type combinations for `a` and `b`.
-
-    E.g. `_array_pair_type_generator(a, b, (list))` will generate `(a,b)`, `(a,list(b))`, `(list(a),b)`
-    and `(list(a),list(b))`, in that order. If `extra_types` is empty, it will generate only `(a,b)`
-    """
-    types = (np.ndarray, list)
-    n = len(types)
-    for i in range(n):
-        # if i == 0 a is already a np.ndarray
-        aa = a if i == 0 else types[i](a)
-        for j in range(n):
-            # if j == 0 b is already a np.ndarray
-            bb = b if j == 0 else types[j](b)
-            yield (aa, bb)
-
-def test_array_pair_type_generator():
-    a = np.random.random(4)
-    b = np.random.random(4)
-    for a,b in _array_pair_type_generator(a,b):
-        print(f'{type(a)=} {type(b)=} ')
-    for a,b in _array_pair_type_generator(a,b, [list]):
-        print(f'{type(a)=} {type(b)=} ')
 
 # ==============================================================================
 if __name__ == "__main__":

@@ -130,7 +130,7 @@ def test_time_numba():
         b = np.random.random(n)
         t0 = perf_counter()
         for _ in range(n_repetitions):
-            a_dot_b = nb_dot(a, b)
+            a_dot_b = jit_dot(a, b)
         seconds = (perf_counter() - t0) / n_repetitions
         print(f'{n=} dot(a, b) took {seconds}s')
 
